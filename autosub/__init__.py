@@ -42,8 +42,9 @@ def is_same_language(lang1, lang2):
 
 
 class FLACConverter(object):
-    def __init__(self, source_path, include_before=0.25, include_after=0.25):
+    def __init__(self, source_path, ffmpegLoc=None, include_before=0.25, include_after=0.25):
         self.source_path = source_path
+        self.ffmpeg_loc = ffmpegLoc
         self.include_before = include_before
         self.include_after = include_after
 
@@ -53,7 +54,7 @@ class FLACConverter(object):
             start = max(0, start - self.include_before)
             end += self.include_after
             temp = tempfile.NamedTemporaryFile(suffix='.flac')
-            command = ["ffmpeg","-ss", str(start), "-t", str(end - start),
+            command = ["ffmpeg" if self.ffmpeg_loc is None else self.ffmpeg_loc,"-ss", str(start), "-t", str(end - start),
                        "-y", "-i", self.source_path,
                        "-loglevel", "error", temp.name]
             use_shell = True if os.name == "nt" else False
@@ -138,15 +139,22 @@ def which(program):
     return None
 
 
-def extract_audio(filename, channels=1, rate=16000):
+def extract_audio(filename, ffmpegLoc=None, channels=1, rate=16000):
     temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+    ffmpeg = None
+
     if not os.path.isfile(filename):
         print("The given file does not exist: {0}".format(filename))
         raise Exception("Invalid filepath: {0}".format(filename))
-    if not which("ffmpeg"):
+
+    if which("ffmpeg"):
+        ffmpeg = "ffmpeg"
+    elif ffmpeg is not None:
+        ffmpeg = ffmpegLoc
+    elif not which("ffmpeg") and ffmpeg is None:
         print("ffmpeg: Executable not found on machine.")
         raise Exception("Dependency not found: ffmpeg")
-    command = ["ffmpeg", "-y", "-i", filename, "-ac", str(channels), "-ar", str(rate), "-loglevel", "error", temp.name]
+    command = [ffmpeg, "-y", "-i", filename, "-ac", str(channels), "-ar", str(rate), "-loglevel", "error", temp.name]
     use_shell = True if os.name == "nt" else False
     subprocess.check_output(command, stdin=open(os.devnull), shell=use_shell)
     return temp.name, rate
@@ -191,6 +199,7 @@ def find_speech_regions(filename, frame_width=4096, min_region_size=0.5, max_reg
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('source_path', help="Path to the video or audio file to subtitle", nargs='?')
+    parser.add_argument('-ffmpeg', '--fmpeg-location', help="The location of the FFmpeg binary", default=None)
     parser.add_argument('-C', '--concurrency', help="Number of concurrent API requests to make",
                         type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument('-o', '--output',
@@ -249,6 +258,7 @@ def main():
     try:
         subtitle_file_path = generate_subtitles(
             source_path=args.source_path,
+            ffmpeg_location=args.ffmpeg_location,
             concurrency=args.concurrency,
             src_language=args.src_language,
             dst_language=args.dst_language,
@@ -265,6 +275,7 @@ def main():
 
 def generate_subtitles(
     source_path,
+    ffmpeg_location=None,
     output=None,
     concurrency=DEFAULT_CONCURRENCY,
     src_language=DEFAULT_SRC_LANGUAGE,
@@ -272,12 +283,12 @@ def generate_subtitles(
     subtitle_file_format=DEFAULT_SUBTITLE_FORMAT,
     api_key=None,
 ):
-    audio_filename, audio_rate = extract_audio(source_path)
+    audio_filename, audio_rate = extract_audio(source_path, ffmpegLoc=ffmpeg_location)
 
     regions = find_speech_regions(audio_filename)
 
     pool = multiprocessing.Pool(concurrency)
-    converter = FLACConverter(source_path=audio_filename)
+    converter = FLACConverter(source_path=audio_filename, ffmpegLoc=ffmpeg_location)
     recognizer = SpeechRecognizer(language=src_language, rate=audio_rate,
                                   api_key=GOOGLE_SPEECH_API_KEY)
 

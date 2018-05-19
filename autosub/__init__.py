@@ -42,9 +42,10 @@ def is_same_language(lang1, lang2):
 
 
 class FLACConverter(object):
-    def __init__(self, source_path, ffmpegLoc=None, include_before=0.25, include_after=0.25):
+    def __init__(self, source_path, ffmpeg_location=None, temp_dir=None, include_before=0.25, include_after=0.25):
         self.source_path = source_path
-        self.ffmpeg_loc = ffmpegLoc
+        self.ffmpeg_location = ffmpeg_location
+        self.temp_dir = temp_dir
         self.include_before = include_before
         self.include_after = include_after
 
@@ -53,8 +54,8 @@ class FLACConverter(object):
             start, end = region
             start = max(0, start - self.include_before)
             end += self.include_after
-            temp = tempfile.NamedTemporaryFile(suffix='.flac')
-            command = ["ffmpeg" if self.ffmpeg_loc is None else self.ffmpeg_loc,"-ss", str(start), "-t", str(end - start),
+            temp = tempfile.NamedTemporaryFile(dir=self.temp_dir, suffix='.flac', delete=False)
+            command = ["ffmpeg" if self.ffmpeg_location is None else self.ffmpeg_location, "-ss", str(start), "-t", str(end - start),
                        "-y", "-i", self.source_path,
                        "-loglevel", "error", temp.name]
             use_shell = True if os.name == "nt" else False
@@ -139,21 +140,23 @@ def which(program):
     return None
 
 
-def extract_audio(filename, ffmpegLoc=None, channels=1, rate=16000):
-    temp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-    ffmpeg = None
+def extract_audio(filename, ffmpeg_location=None, temp_dir=None, channels=1, rate=16000):
+    temp = tempfile.NamedTemporaryFile(dir=temp_dir, suffix='.wav', delete=False)
+    ffmpeg = ""
 
     if not os.path.isfile(filename):
         print("The given file does not exist: {0}".format(filename))
         raise Exception("Invalid filepath: {0}".format(filename))
 
-    if which("ffmpeg"):
-        ffmpeg = "ffmpeg"
-    elif ffmpeg is not None:
-        ffmpeg = ffmpegLoc
-    elif not which("ffmpeg") and ffmpeg is None:
-        print("ffmpeg: Executable not found on machine.")
-        raise Exception("Dependency not found: ffmpeg")
+    if ffmpeg_location is not None:
+        ffmpeg = ffmpeg_location
+    else:
+        if which("ffmpeg"):
+            ffmpeg = "ffmpeg"
+        else:
+            print("ffmpeg: Executable not found on machine.")
+            raise Exception("Dependency not found: ffmpeg")
+
     command = [ffmpeg, "-y", "-i", filename, "-ac", str(channels), "-ar", str(rate), "-loglevel", "error", temp.name]
     use_shell = True if os.name == "nt" else False
     subprocess.check_output(command, stdin=open(os.devnull), shell=use_shell)
@@ -199,7 +202,8 @@ def find_speech_regions(filename, frame_width=4096, min_region_size=0.5, max_reg
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('source_path', help="Path to the video or audio file to subtitle", nargs='?')
-    parser.add_argument('-ffmpeg', '--fmpeg-location', help="The location of the FFmpeg binary", default=None)
+    parser.add_argument('-ffmpeg', '--ffmpeg-location', help="The location of the FFmpeg binary", default=None)
+    parser.add_argument('-temp', '--temp-dir', help="The temporary directory to store processed audio", default=None)
     parser.add_argument('-C', '--concurrency', help="Number of concurrent API requests to make",
                         type=int, default=DEFAULT_CONCURRENCY)
     parser.add_argument('-o', '--output',
@@ -259,6 +263,7 @@ def main():
         subtitle_file_path = generate_subtitles(
             source_path=args.source_path,
             ffmpeg_location=args.ffmpeg_location,
+            temp_dir=args.temp_dir,
             concurrency=args.concurrency,
             src_language=args.src_language,
             dst_language=args.dst_language,
@@ -276,6 +281,7 @@ def main():
 def generate_subtitles(
     source_path,
     ffmpeg_location=None,
+    temp_dir=None,
     output=None,
     concurrency=DEFAULT_CONCURRENCY,
     src_language=DEFAULT_SRC_LANGUAGE,
@@ -283,12 +289,12 @@ def generate_subtitles(
     subtitle_file_format=DEFAULT_SUBTITLE_FORMAT,
     api_key=None,
 ):
-    audio_filename, audio_rate = extract_audio(source_path, ffmpegLoc=ffmpeg_location)
+    audio_filename, audio_rate = extract_audio(source_path, ffmpeg_location=ffmpeg_location, temp_dir=temp_dir)
 
     regions = find_speech_regions(audio_filename)
 
     pool = multiprocessing.Pool(concurrency)
-    converter = FLACConverter(source_path=audio_filename, ffmpegLoc=ffmpeg_location)
+    converter = FLACConverter(source_path=audio_filename, ffmpeg_location=ffmpeg_location, temp_dir=temp_dir)
     recognizer = SpeechRecognizer(language=src_language, rate=audio_rate,
                                   api_key=GOOGLE_SPEECH_API_KEY)
 

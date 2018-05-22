@@ -1,6 +1,6 @@
 from __future__ import unicode_literals
 GOOGLE_SPEECH_API_KEY = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
-GOOGLE_SPEECH_API_URL = "http://www.google.com/speech-api/v2/recognize?client=chromium&lang={lang}&key={key}"
+GOOGLE_SPEECH_API_URL = "http://www.google.com/speech-api/v2/recognize?client=chromium&pFilter=0&lang={lang}&key={key}"
 
 LANGUAGE_CODES = {
     'af': 'Afrikaans',
